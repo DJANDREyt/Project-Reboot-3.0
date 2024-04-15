@@ -9,6 +9,7 @@
 #include "FortAthenaMutator_GG.h"
 #include "FortAthenaMutator_InventoryOverride.h"
 #include "calendar.h"
+#include "FortPlayerControllerZone.h"
 
 void AGameModeBase::RestartPlayerAtTransform(AController* NewPlayer, FTransform SpawnTransform)
 {
@@ -106,17 +107,17 @@ APawn* AGameModeBase::SpawnDefaultPawnForHook(AGameModeBase* GameMode, AControll
 {
 	LOG_INFO(LogDev, "SpawnDefaultPawnForHook!");
 
-	auto NewPlayerAsAthena = Cast<AFortPlayerControllerAthena>(NewPlayer);
+	auto NewPlayerAsAthena = Cast<AFortPlayerControllerZone>(NewPlayer);
 
 	if (!NewPlayerAsAthena)
 		return nullptr; // return original?
 
-	auto PlayerStateAthena = NewPlayerAsAthena->GetPlayerStateAthena();
+	auto PlayerStateAthena = NewPlayerAsAthena->GetPlayerStateZone();
 
 	if (!PlayerStateAthena)
 		return nullptr; // return original?
 
-	static auto PawnClass = FindObject<UClass>(L"/Game/Athena/PlayerPawn_Athena.PlayerPawn_Athena_C");
+	static auto PawnClass = FindObject<UClass>(L"/Game/Athena/PlayerPawn_Generic.PlayerPawn_Generic_C");
 	static auto DefaultPawnClassOffset = GameMode->GetOffset("DefaultPawnClass");
 	GameMode->Get<UClass*>(DefaultPawnClassOffset) = PawnClass;
 
@@ -151,14 +152,7 @@ APawn* AGameModeBase::SpawnDefaultPawnForHook(AGameModeBase* GameMode, AControll
 	bool bIsRespawning = false; // reel
 
 	auto ASC = PlayerStateAthena->GetAbilitySystemComponent();
-	auto GameState = ((AFortGameModeAthena*)GameMode)->GetGameStateAthena();
-
-	GET_PLAYLIST(GameState);
-
-	if (CurrentPlaylist) // Apply gameplay effects from playlist // We need to move this maybe?
-	{
-		CurrentPlaylist->ApplyModifiersToActor(PlayerStateAthena);
-	}
+	auto GameState = ((AFortGameModeZone*)GameMode)->GetGameStateZone();
 
 	auto PlayerAbilitySet = GetPlayerAbilitySet(); // Apply default gameplay effects // We need to move maybe?
 
@@ -216,27 +210,6 @@ APawn* AGameModeBase::SpawnDefaultPawnForHook(AGameModeBase* GameMode, AControll
 					}
 				} */
 
-				auto AddInventoryOverrideTeamLoadouts = [&](AFortAthenaMutator* Mutator)
-				{
-					if (auto InventoryOverride = Cast<AFortAthenaMutator_InventoryOverride>(Mutator))
-					{
-						auto TeamIndex = PlayerStateAthena->GetTeamIndex();
-						auto LoadoutTeam = InventoryOverride->GetLoadoutTeamForTeamIndex(TeamIndex);
-
-						if (LoadoutTeam.UpdateOverrideType == EAthenaInventorySpawnOverride::Always)
-						{
-							auto LoadoutContainer = InventoryOverride->GetLoadoutContainerForTeamIndex(TeamIndex);
-
-							for (int i = 0; i < LoadoutContainer.Loadout.Num(); ++i)
-							{
-								auto& ItemAndCount = LoadoutContainer.Loadout.at(i);
-								WorldInventory->AddItem(ItemAndCount.GetItem(), nullptr, ItemAndCount.GetCount());
-							}
-						}
-					}
-				};
-
-				LoopMutators(AddInventoryOverrideTeamLoadouts);
 			}
 
 			const auto& ItemInstances = WorldInventory->GetItemList().GetItemInstances();
@@ -292,14 +265,6 @@ APawn* AGameModeBase::SpawnDefaultPawnForHook(AGameModeBase* GameMode, AControll
 
 		// NewPlayerAsAthena->ClientClearDeathNotification();
 		// NewPlayerAsAthena->RespawnPlayerAfterDeath(true);
-	}
-
-    static bool bFirst = true;
-
-	if (bFirst && Calendar::HasSnowModification())
-	{
-		bFirst = false;
-		Calendar::SetSnow(100);
 	}
 	LOG_INFO(LogDev, "Finish SpawnDefaultPawnFor!");
 

@@ -33,6 +33,12 @@ void AFortPlayerState::EndDBNOAbilities()
 	ASC->ServerEndAbility(DBNOSpec->GetHandle(), DBNOSpec->GetActivationInfo(), nullptr);
 }
 
+void AFortPlayerState::OnRep_CharacterParts()
+{
+	static auto OnRep_CharacterPartsFunc = FindObject<UFunction>("/Script/FortniteGame.FortPlayerState.OnRep_CharacterParts");
+	this->ProcessEvent(OnRep_CharacterPartsFunc, nullptr);
+}
+
 bool AFortPlayerState::AreUniqueIDsIdentical(FUniqueNetIdRepl* A, FUniqueNetIdRepl* B)
 {
 	return A->IsIdentical(B);

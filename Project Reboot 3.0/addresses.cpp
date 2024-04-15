@@ -90,6 +90,8 @@ void Addresses::SetupVersion()
 
 	FFastArraySerializer::bNewSerializer = Fortnite_Version >= 8.30;
 
+	if (Fortnite_CL == 3541083)
+		Fortnite_Version = 1.2;
 	if (Fortnite_CL == 3700114)
 		Fortnite_Version = 1.72;
 	if (Fortnite_CL == 3724489)

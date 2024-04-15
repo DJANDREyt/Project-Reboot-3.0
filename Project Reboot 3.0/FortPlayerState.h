@@ -21,6 +21,9 @@ public:
 
 	void EndDBNOAbilities();
 
+
+	void OnRep_CharacterParts();
+
 	static bool AreUniqueIDsIdentical(FUniqueNetIdRepl* A, FUniqueNetIdRepl* B);
 
 	static UClass* StaticClass()

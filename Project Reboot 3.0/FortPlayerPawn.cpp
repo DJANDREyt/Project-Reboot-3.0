@@ -255,6 +255,12 @@ void AFortPlayerPawn::UnEquipVehicleWeaponDefinition(UFortWeaponItemDefinition* 
 	PlayerController->ClientEquipItem(LastItemInstance->GetItemEntry()->GetItemGuid(), true);
 }
 
+void AFortPlayerPawn::OnCharacterPartsReinitialized()
+{
+	static auto OnCharacterPartsReinitializedFunc = FindObject<UFunction>("/Script/FortniteGame.FortPlayerPawn.OnCharacterPartsReinitialized");
+	this->ProcessEvent(OnCharacterPartsReinitializedFunc, nullptr);
+}
+
 void AFortPlayerPawn::StartGhostModeExitHook(UObject* Context, FFrame* Stack, void* Ret)
 {
 	LOG_INFO(LogDev, __FUNCTION__);

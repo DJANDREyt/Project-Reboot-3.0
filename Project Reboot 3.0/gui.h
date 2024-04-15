@@ -80,7 +80,7 @@ extern inline int SecondsUntilTravel = 5;
 extern inline bool bSwitchedInitialLevel = false;
 extern inline bool bIsInAutoRestart = false;
 extern inline float AutoBusStartSeconds = 60;
-extern inline int NumRequiredPlayersToStart = 2;
+extern inline int NumRequiredPlayersToStart = 1;
 extern inline bool bDebugPrintLooting = false;
 extern inline bool bDebugPrintFloorLoot = false;
 extern inline bool bDebugPrintSwapping = false;
@@ -122,13 +122,7 @@ static inline void Restart() // todo move?
 {
 	InitBotNames();
 
-	FString LevelA = Engine_Version < 424
-		? L"open Athena_Terrain" : Engine_Version >= 500 ? Engine_Version >= 501
-		? L"open Asteria_Terrain"
-		: Globals::bCreative ? L"open Creative_NoApollo_Terrain"
-		: L"open Artemis_Terrain"
-		: Globals::bCreative ? L"open Creative_NoApollo_Terrain"
-		: L"open Apollo_Terrain";
+	FString LevelA = Globals::bFarmstead ? L"open Zone_Onboarding_FarmsteadFort" : L"open Zone_Temperate_Urban";
 
 	static auto BeaconClass = FindObject<UClass>(L"/Script/FortniteGame.FortOnlineBeaconHost");
 	auto AllFortBeacons = UGameplayStatics::GetAllActorsOfClass(GetWorld(), BeaconClass);
@@ -316,18 +310,6 @@ static int playerTabTab = MAIN_PLAYERTAB;
 
 static inline void StaticUI()
 {
-	if (IsRestartingSupported())
-	{
-		// ImGui::Checkbox("Auto Restart", &Globals::bAutoRestart);
-
-		if (Globals::bAutoRestart)
-		{
-			ImGui::InputFloat(std::format("How long after {} players join the bus will start", NumRequiredPlayersToStart).c_str(), &AutoBusStartSeconds);
-			ImGui::InputInt("Num Players required for bus auto timer", &NumRequiredPlayersToStart);
-		}
-	}
-
-	ImGui::InputInt("Shield/Health for siphon", &AmountOfHealthSiphon);
 
 	ImGui::Checkbox("Enable Developer Mode", &Globals::bDeveloperMode);
 
@@ -346,11 +328,6 @@ static inline void StaticUI()
 	ImGui::Checkbox("Infinite Materials", &Globals::bInfiniteMaterials);
 
 	ImGui::Checkbox("No MCP (Don't change unless you know what this is)", &Globals::bNoMCP);
-
-	if (Addresses::ApplyGadgetData && Addresses::RemoveGadgetData && Engine_Version < 424)
-	{
-		ImGui::Checkbox("Enable AGIDs (Don't change unless you know what this is)", &Globals::bEnableAGIDs);
-	}
 }
 
 static inline void MainTabs()
@@ -423,14 +400,6 @@ static inline void MainTabs()
 		if (ImGui::BeginTabItem("Fun"))
 		{
 			Tab = FUN_TAB;
-			PlayerTab = -1;
-			bInformationTab = false;
-			ImGui::EndTabItem();
-		}
-
-		if (Globals::bLateGame.load() && ImGui::BeginTabItem("Lategame"))
-		{
-			Tab = LATEGAME_TAB;
 			PlayerTab = -1;
 			bInformationTab = false;
 			ImGui::EndTabItem();
@@ -519,190 +488,6 @@ static inline void PlayerTabs()
 	}
 }
 
-static inline DWORD WINAPI LateGameThread(LPVOID)
-{
-	float MaxTickRate = 30;
-
-	auto GameMode = Cast<AFortGameModeAthena>(GetWorld()->GetGameMode());
-	auto GameState = Cast<AFortGameStateAthena>(GameMode->GetGameState());
-
-	auto GetAircrafts = [&]() -> std::vector<AActor*>
-	{
-		static auto AircraftsOffset = GameState->GetOffset("Aircrafts", false);
-		std::vector<AActor*> Aircrafts;
-
-		if (AircraftsOffset == -1)
-		{
-			// GameState->Aircraft
-
-			static auto FortAthenaAircraftClass = FindObject<UClass>(L"/Script/FortniteGame.FortAthenaAircraft");
-			auto AllAircrafts = UGameplayStatics::GetAllActorsOfClass(GetWorld(), FortAthenaAircraftClass);
-
-			for (int i = 0; i < AllAircrafts.Num(); i++)
-			{
-				Aircrafts.push_back(AllAircrafts.at(i));
-			}
-
-			AllAircrafts.Free();
-		}
-		else
-		{
-			const auto& GameStateAircrafts = GameState->Get<TArray<AActor*>>(AircraftsOffset);
-
-			for (int i = 0; i < GameStateAircrafts.Num(); i++)
-			{
-				Aircrafts.push_back(GameStateAircrafts.at(i));
-			}
-		}
-
-		return Aircrafts;
-	};
-
-	GameMode->StartAircraftPhase();
-
-	while (GetAircrafts().size() <= 0)
-	{
-		Sleep(1000 / MaxTickRate);
-	}
-
-	static auto SafeZoneLocationsOffset = GameMode->GetOffset("SafeZoneLocations");
-	const TArray<FVector>& SafeZoneLocations = GameMode->Get<TArray<FVector>>(SafeZoneLocationsOffset);
-
-	if (SafeZoneLocations.Num() < 4)
-	{
-		LOG_WARN(LogLateGame, "Unable to find SafeZoneLocation! Disabling lategame..");
-		SetIsLategame(false);
-		return 0;
-	}
-
-	const FVector ZoneCenterLocation = SafeZoneLocations.at(3);
-
-	FVector LocationToStartAircraft = ZoneCenterLocation;
-	LocationToStartAircraft.Z += 10000;
-
-	auto Aircrafts = GetAircrafts();
-
-	float DropStartTime = GameState->GetServerWorldTimeSeconds() + 5.f;
-	float FlightSpeed = 0.0f;
-
-	for (int i = 0; i < Aircrafts.size(); ++i)
-	{
-		auto CurrentAircraft = Aircrafts.at(i);
-		CurrentAircraft->TeleportTo(LocationToStartAircraft, FRotator());
-
-		static auto FlightInfoOffset = CurrentAircraft->GetOffset("FlightInfo", false);
-
-		if (FlightInfoOffset == -1)
-		{
-			static auto FlightStartLocationOffset = CurrentAircraft->GetOffset("FlightStartLocation");
-			static auto FlightSpeedOffset = CurrentAircraft->GetOffset("FlightSpeed");
-			static auto DropStartTimeOffset = CurrentAircraft->GetOffset("DropStartTime");
-
-			CurrentAircraft->Get<FVector>(FlightStartLocationOffset) = LocationToStartAircraft;
-			CurrentAircraft->Get<float>(FlightSpeedOffset) = FlightSpeed;
-			CurrentAircraft->Get<float>(DropStartTimeOffset) = DropStartTime;
-		}
-		else
-		{
-			auto FlightInfo = CurrentAircraft->GetPtr<FAircraftFlightInfo>(FlightInfoOffset);
-
-			FlightInfo->GetFlightSpeed() = FlightSpeed;
-			FlightInfo->GetFlightStartLocation() = LocationToStartAircraft;
-			FlightInfo->GetTimeTillDropStart() = DropStartTime;
-		}
-	}
-
-	while (GameState->GetGamePhase() != EAthenaGamePhase::Aircraft)
-	{
-		Sleep(1000 / MaxTickRate);
-	}
-
-	/*
-	static auto MapInfoOffset = GameState->GetOffset("MapInfo");
-	auto MapInfo = GameState->Get(MapInfoOffset);
-
-	if (MapInfo)
-	{
-		static auto FlightInfosOffset = MapInfo->GetOffset("FlightInfos", false);
-
-		if (FlightInfosOffset != -1)
-		{
-			auto& FlightInfos = MapInfo->Get<TArray<FAircraftFlightInfo>>(FlightInfosOffset);
-
-			for (int i = 0; i < FlightInfos.Num(); i++)
-			{
-				auto FlightInfo = FlightInfos.AtPtr(i, FAircraftFlightInfo::GetStructSize());
-
-				FlightInfo->GetFlightSpeed() = FlightSpeed;
-				FlightInfo->GetFlightStartLocation() = LocationToStartAircraft;
-				FlightInfo->GetTimeTillDropStart() = DropStartTime;
-			}
-		}
-	}
-	*/
-
-	while (GameState->GetGamePhase() == EAthenaGamePhase::Aircraft)
-	{
-		Sleep(1000 / MaxTickRate);
-	}
-
-	static auto World_NetDriverOffset = GetWorld()->GetOffset("NetDriver");
-	auto WorldNetDriver = GetWorld()->Get<UNetDriver*>(World_NetDriverOffset);
-	auto& ClientConnections = WorldNetDriver->GetClientConnections();
-
-	for (int z = 0; z < ClientConnections.Num(); z++)
-	{
-		auto ClientConnection = ClientConnections.at(z);
-		auto FortPC = Cast<AFortPlayerController>(ClientConnection->GetPlayerController());
-
-		if (!FortPC)
-			continue;
-
-		auto WorldInventory = FortPC->GetWorldInventory();
-
-		if (!WorldInventory)
-			continue;
-
-		static auto WoodItemData = FindObject<UFortItemDefinition>(L"/Game/Items/ResourcePickups/WoodItemData.WoodItemData");
-		static auto StoneItemData = FindObject<UFortItemDefinition>(L"/Game/Items/ResourcePickups/StoneItemData.StoneItemData");
-		static auto MetalItemData = FindObject<UFortItemDefinition>(L"/Game/Items/ResourcePickups/MetalItemData.MetalItemData");
-
-		static auto Rifle = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Assault_AutoHigh_Athena_SR_Ore_T03.WID_Assault_AutoHigh_Athena_SR_Ore_T03");
-		static auto Shotgun = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_SR_Ore_T03.WID_Shotgun_Standard_Athena_SR_Ore_T03")
-			? FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_SR_Ore_T03.WID_Shotgun_Standard_Athena_SR_Ore_T03")
-			: FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Shotgun_Standard_Athena_C_Ore_T03.WID_Shotgun_Standard_Athena_C_Ore_T03");
-		static auto SMG = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Pistol_AutoHeavyPDW_Athena_R_Ore_T03.WID_Pistol_AutoHeavyPDW_Athena_R_Ore_T03")
-			? FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Pistol_AutoHeavyPDW_Athena_R_Ore_T03.WID_Pistol_AutoHeavyPDW_Athena_R_Ore_T03")
-			: FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Weapons/WID_Pistol_AutoHeavySuppressed_Athena_R_Ore_T03.WID_Pistol_AutoHeavySuppressed_Athena_R_Ore_T03");
-
-		static auto MiniShields = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Consumables/ShieldSmall/Athena_ShieldSmall.Athena_ShieldSmall");
-
-		static auto Shells = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Ammo/AthenaAmmoDataShells.AthenaAmmoDataShells");
-		static auto Medium = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Ammo/AthenaAmmoDataBulletsMedium.AthenaAmmoDataBulletsMedium");
-		static auto Light = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Ammo/AthenaAmmoDataBulletsLight.AthenaAmmoDataBulletsLight");
-		static auto Heavy = FindObject<UFortItemDefinition>(L"/Game/Athena/Items/Ammo/AthenaAmmoDataBulletsHeavy.AthenaAmmoDataBulletsHeavy");
-
-		WorldInventory->AddItem(WoodItemData, nullptr, 500);
-		WorldInventory->AddItem(StoneItemData, nullptr, 500);
-		WorldInventory->AddItem(MetalItemData, nullptr, 500);
-		WorldInventory->AddItem(Rifle, nullptr, 1);
-		WorldInventory->AddItem(Shotgun, nullptr, 1);
-		WorldInventory->AddItem(SMG, nullptr, 1);
-		WorldInventory->AddItem(MiniShields, nullptr, 6);
-		WorldInventory->AddItem(Shells, nullptr, 999);
-		WorldInventory->AddItem(Medium, nullptr, 999);
-		WorldInventory->AddItem(Light, nullptr, 999);
-		WorldInventory->AddItem(Heavy, nullptr, 999);
-
-		WorldInventory->Update();
-	}
-
-	static auto SafeZonesStartTimeOffset = GameState->GetOffset("SafeZonesStartTime");
-	GameState->Get<float>(SafeZonesStartTimeOffset) = 0.001f;
-
-	return 0;
-}
-
 static inline void MainUI()
 {
 	bool bLoaded = true;
@@ -717,19 +502,7 @@ static inline void MainUI()
 			{
 				StaticUI();
 
-				if (!bStartedBus)
-				{
-					bool bWillBeLategame = Globals::bLateGame.load();
-					ImGui::Checkbox("Lategame", &bWillBeLategame);
-					SetIsLategame(bWillBeLategame);
-				}
-
 				ImGui::Text(std::format("Joinable {}", Globals::bStartedListening).c_str());
-
-				if (!Globals::bStartedListening) // hm
-				{
-					ImGui::SliderInt("Players required to start the match", &WarmupRequiredPlayerCount, 1, 100);
-				}
 
 				static std::string ConsoleCommand;
 
@@ -744,45 +517,6 @@ static inline void MainUI()
 
 					UKismetSystemLibrary::ExecuteConsoleCommand(GetWorld(), cmd, nullptr);
 				}
-
-				/* if (ImGui::Button("Spawn BGAs"))
-				{
-					SpawnBGAs();
-				} */
-
-				/*
-				if (ImGui::Button("New"))
-				{
-					static auto NextFn = FindObject<UFunction>("/Game/Athena/Prototype/Blueprints/Cube/CUBE.CUBE_C.Next");
-					static auto NewFn = FindObject<UFunction>("/Game/Athena/Prototype/Blueprints/Cube/CUBE.CUBE_C.New");					
-					auto Loader = GetEventLoader("/Game/Athena/Prototype/Blueprints/Cube/CUBE.CUBE_C");
-
-					LOG_INFO(LogDev, "Loader: {}", __int64(Loader));
-
-					if (Loader)
-					{
-						int32 NewParam = 1;
-						// Loader->ProcessEvent(NextFn, &NewParam);
-						Loader->ProcessEvent(NewFn, &NewParam);
-					}
-				}
-
-				if (ImGui::Button("Next"))
-				{
-					static auto NextFn = FindObject<UFunction>("/Game/Athena/Prototype/Blueprints/Cube/CUBE.CUBE_C.Next");
-					static auto NewFn = FindObject<UFunction>("/Game/Athena/Prototype/Blueprints/Cube/CUBE.CUBE_C.New");
-					auto Loader = GetEventLoader("/Game/Athena/Prototype/Blueprints/Cube/CUBE.CUBE_C");
-
-					LOG_INFO(LogDev, "Loader: {}", __int64(Loader));
-
-					if (Loader)
-					{
-						int32 NewParam = 1;
-						Loader->ProcessEvent(NextFn, &NewParam);
-						// Loader->ProcessEvent(NewFn, &NewParam);
-					}
-				}
-				*/
 
 				if (!bIsInAutoRestart && Engine_Version < 424 && ImGui::Button("Restart"))
 				{
@@ -811,62 +545,6 @@ static inline void MainUI()
 				}
 				*/
 
-				if (!bStartedBus)
-				{
-					if (Globals::bLateGame.load() 
-						|| (Fortnite_Version >= 11 // Its been a minute but iirc it just wouldnt start when countdown ended or crash? cant remember
-						// && false
-						))
-					{
-						if (ImGui::Button("Start Bus"))
-						{
-							bStartedBus = true;
-
-							auto GameMode = (AFortGameModeAthena*)GetWorld()->GetGameMode();
-							auto GameState = Cast<AFortGameStateAthena>(GameMode->GetGameState());
-
-							AmountOfPlayersWhenBusStart = GameState->GetPlayersLeft();
-
-							if (Globals::bLateGame.load())
-							{
-								CreateThread(0, 0, LateGameThread, 0, 0, 0);
-							}
-							else
-							{
-								GameMode->StartAircraftPhase();
-							}
-						}
-					}
-					else
-					{
-						if (ImGui::Button("Start Bus Countdown"))
-						{
-							bStartedBus = true;
-
-							auto GameMode = (AFortGameMode*)GetWorld()->GetGameMode();
-							auto GameState = Cast<AFortGameStateAthena>(GameMode->GetGameState());
-
-							AmountOfPlayersWhenBusStart = GameState->GetPlayersLeft();
-
-							static auto WarmupCountdownEndTimeOffset = GameState->GetOffset("WarmupCountdownEndTime");
-							// GameState->Get<float>(WarmupCountdownEndTimeOffset) = UGameplayStatics::GetTimeSeconds(GetWorld()) + 10;
-
-							float TimeSeconds = GameState->GetServerWorldTimeSeconds(); // UGameplayStatics::GetTimeSeconds(GetWorld());
-							float Duration = 10;
-							float EarlyDuration = Duration;
-
-							static auto WarmupCountdownStartTimeOffset = GameState->GetOffset("WarmupCountdownStartTime");
-							static auto WarmupCountdownDurationOffset = GameMode->GetOffset("WarmupCountdownDuration");
-							static auto WarmupEarlyCountdownDurationOffset = GameMode->GetOffset("WarmupEarlyCountdownDuration");
-
-							GameState->Get<float>(WarmupCountdownEndTimeOffset) = TimeSeconds + Duration;
-							GameMode->Get<float>(WarmupCountdownDurationOffset) = Duration;
-
-							// GameState->Get<float>(WarmupCountdownStartTimeOffset) = TimeSeconds;
-							GameMode->Get<float>(WarmupEarlyCountdownDurationOffset) = EarlyDuration;
-						}
-					}
-				}
 			}
 		}
 
@@ -877,11 +555,6 @@ static inline void MainUI()
 
 		else if (Tab == EVENT_TAB)
 		{
-			if (ImGui::Button(std::format("Start {}", GetEventName()).c_str()))
-			{
-				StartEvent();
-			}
-
 			if (Fortnite_Version == 18.40)
 			{
 				if (ImGui::Button("Remove Storm Effect"))
@@ -899,111 +572,16 @@ static inline void MainUI()
 				}
 			}
 
-			if (Fortnite_Version == 8.51)
-			{
-				if (ImGui::Button("Unvault DrumGun"))
-				{
-					static auto SetUnvaultItemNameFn = FindObject<UFunction>(L"/Game/Athena/Prototype/Blueprints/White/BP_SnowScripting.BP_SnowScripting_C.SetUnvaultItemName");
-					auto EventScripting = GetEventScripting();
-
-					if (EventScripting)
-					{
-						FName Name = UKismetStringLibrary::Conv_StringToName(L"DrumGun");
-						EventScripting->ProcessEvent(SetUnvaultItemNameFn, &Name);
-
-						static auto PillarsConcludedFn = FindObject<UFunction>(L"/Game/Athena/Prototype/Blueprints/White/BP_SnowScripting.BP_SnowScripting_C.PillarsConcluded");
-						EventScripting->ProcessEvent(PillarsConcludedFn, &Name);
-					}
-				}
-			}
 		}
 
 		else if (Tab == CALENDAR_TAB)
 		{
-			if (Calendar::HasSnowModification())
-			{
-				static bool bFirst = false;
-
-				static float FullSnowValue = Calendar::GetFullSnowMapValue();
-				static float NoSnowValue = 0.0f;
-				static float SnowValue = 0.0f;
-
-				ImGui::SliderFloat(("Snow Level"), &SnowValue, 0, FullSnowValue);
-
-				if (ImGui::Button("Set Snow Level"))
-				{
-					Calendar::SetSnow(SnowValue);
-				}
-
-				if (ImGui::Button("Toggle Full Snow Map"))
-				{
-					bFirst ? Calendar::SetSnow(NoSnowValue) : Calendar::SetSnow(FullSnowValue);
-
-					bFirst = !bFirst;
-				}
-			}
-
-			if (Calendar::HasNYE())
-			{
-				if (ImGui::Button("Start New Years Eve Event"))
-				{
-					Calendar::StartNYE();
-				}
-			}
-
-			if (std::floor(Fortnite_Version) == 13)
-			{
-				static UObject* WL = FindObject("/Game/Athena/Apollo/Maps/Apollo_POI_Foundations.Apollo_POI_Foundations.PersistentLevel.Apollo_WaterSetup_2");
-
-				if (WL)
-				{
-					static auto MaxWaterLevelOffset = WL->GetOffset("MaxWaterLevel");
-
-					static int MaxWaterLevel = WL->Get<int>(MaxWaterLevelOffset);
-					static int WaterLevel = 0;
-
-					ImGui::SliderInt("WaterLevel", &WaterLevel, 0, MaxWaterLevel);
-
-					if (ImGui::Button("Set Water Level"))
-					{
-						Calendar::SetWaterLevel(WaterLevel);
-					}
-				}
-			}
+			
 		}
 
 		else if (Tab == ZONE_TAB)
 		{
-			if (ImGui::Button("Start Safe Zone"))
-			{
-				UKismetSystemLibrary::ExecuteConsoleCommand(GetWorld(), L"startsafezone", nullptr);
-			}
-
-			if (ImGui::Button("Pause Safe Zone"))
-			{
-				UKismetSystemLibrary::ExecuteConsoleCommand(GetWorld(), L"pausesafezone", nullptr);
-			}
-
-			if (ImGui::Button("Skip Zone"))
-			{
-				UKismetSystemLibrary::ExecuteConsoleCommand(GetWorld(), L"skipsafezone", nullptr);
-			}
-
-			if (ImGui::Button("Start Shrink Safe Zone"))
-			{
-				UKismetSystemLibrary::ExecuteConsoleCommand(GetWorld(), L"startshrinksafezone", nullptr);
-			}
-
-			if (ImGui::Button("Skip Shrink Safe Zone"))
-			{
-				auto GameMode = Cast<AFortGameModeAthena>(GetWorld()->GetGameMode());
-				auto SafeZoneIndicator = GameMode->GetSafeZoneIndicator();
-
-				if (SafeZoneIndicator)
-				{
-					SafeZoneIndicator->SkipShrinkSafeZone();
-				}
-			}
+			
 		}
 
 		else if (Tab == DUMP_TAB)
@@ -1180,57 +758,9 @@ static inline void MainUI()
 					LOG_WARN(LogUI, "Invalid Item Definition!");
 				}
 			}
-
-			auto GameState = Cast<AFortGameStateAthena>(GetWorld()->GetGameState());
-
-			if (GameState)
-			{
-				static auto DefaultGliderRedeployCanRedeployOffset = FindOffsetStruct("/Script/FortniteGame.FortGameStateAthena", "DefaultGliderRedeployCanRedeploy", false);
-				static auto DefaultParachuteDeployTraceForGroundDistanceOffset = GameState->GetOffset("DefaultParachuteDeployTraceForGroundDistance", false);
-
-				if (Globals::bStartedListening) // it resets accordingly to ProHenis b4 this
-				{
-					if (DefaultParachuteDeployTraceForGroundDistanceOffset != -1)
-					{
-						ImGui::InputFloat("Automatic Parachute Pullout Distance", GameState->GetPtr<float>(DefaultParachuteDeployTraceForGroundDistanceOffset));
-					}
-				}
-
-				if (DefaultGliderRedeployCanRedeployOffset != -1)
-				{
-					bool EnableGliderRedeploy = (bool)GameState->Get<float>(DefaultGliderRedeployCanRedeployOffset);
-
-					if (ImGui::Checkbox("Enable Glider Redeploy", &EnableGliderRedeploy))
-					{
-						GameState->Get<float>(DefaultGliderRedeployCanRedeployOffset) = EnableGliderRedeploy;
-					}
-				}
-
-				GET_PLAYLIST(GameState);
-
-				if (CurrentPlaylist)
-				{
-					bool bRespawning = CurrentPlaylist->GetRespawnType() == EAthenaRespawnType::InfiniteRespawn || CurrentPlaylist->GetRespawnType() == EAthenaRespawnType::InfiniteRespawnExceptStorm;
-
-					if (ImGui::Checkbox("Respawning", &bRespawning))
-					{
-						CurrentPlaylist->GetRespawnType() = (EAthenaRespawnType)bRespawning;
-					}
-				}
-			}
 		}
 		else if (Tab == LATEGAME_TAB)
 		{
-			if (bEnableReverseZone)
-				ImGui::Text(std::format("Currently {}eversing zone", bZoneReversing ? "r" : "not r").c_str());
-
-			ImGui::Checkbox("Enable Reverse Zone (EXPERIMENTAL)", &bEnableReverseZone);
-
-			if (bEnableReverseZone)
-			{
-				ImGui::InputInt("Start Reversing Phase", &StartReverseZonePhase);
-				ImGui::InputInt("End Reversing Phase", &EndReverseZonePhase);
-			}
 		}
 		else if (Tab == DEVELOPER_TAB)
 		{
@@ -1241,9 +771,7 @@ static inline void MainUI()
 			static bool bExcludeUnhandled = true;
 
 			ImGui::Checkbox("Handle Death", &bHandleDeath);
-			ImGui::Checkbox("Fill Vending Machines", &Globals::bFillVendingMachines);
 			ImGui::Checkbox("Enable Bot Tick", &bEnableBotTick);
-			ImGui::Checkbox("Enable Rebooting", &bEnableRebooting);
 			ImGui::Checkbox("Enable Combine Pickup", &bEnableCombinePickup);
 			ImGui::Checkbox("Exclude unhandled", &bExcludeUnhandled);
 			ImGui::InputInt("Amount To Subtract Index", &AmountToSubtractIndex);
@@ -1347,48 +875,9 @@ static inline void MainUI()
 				}
 			}
 
-			/* if (ImGui::Button("Load BGA Class (and spawn so no GC)"))
-			{
-				static auto BGAClass = FindObject<UClass>("/Script/Engine.BlueprintGeneratedClass");
-				auto Class = LoadObject<UClass>(ClassNameToDump, BGAClass);
-
-				if (Class)
-				{
-					GetWorld()->SpawnActor<AActor>(Class, FVector());
-				}
-			} */
-
-			/* 
-			ImGui::Text(std::format("Amount of hooks {}", AllFunctionHooks.size()).c_str());
-
-			for (auto& FunctionHook : AllFunctionHooks)
-			{
-				if (ImGui::Button(std::format("{} {} (0x{:x})", (FunctionHook.IsHooked ? "Unhook" : "Hook"), FunctionHook.Name, (__int64(FunctionHook.Original) - __int64(GetModuleHandleW(0)))).c_str()))
-				{
-					if (FunctionHook.IsHooked)
-					{
-						if (!FunctionHook.VFT || FunctionHook.Index == -1)
-						{
-							Hooking::MinHook::Unhook(FunctionHook.Original);
-						}
-						else
-						{
-							VirtualSwap(FunctionHook.VFT, FunctionHook.Index, FunctionHook.Original);
-						}
-					}
-					else
-					{
-						Hooking::MinHook::Hook(FunctionHook.Original, FunctionHook.Detour, nullptr, FunctionHook.Name);
-					}
-
-					FunctionHook.IsHooked = !FunctionHook.IsHooked;
-				}
-			} 
-			*/
 		}
 		else if (Tab == DEBUGLOG_TAB)
 		{
-			ImGui::Checkbox("Floor Loot Debug Log", &bDebugPrintFloorLoot);
 			ImGui::Checkbox("Looting Debug Log", &bDebugPrintLooting);
 			ImGui::Checkbox("Swapping Debug Log", &bDebugPrintSwapping);
 			ImGui::Checkbox("Engine Debug Log", &bEngineDebugLogs);
@@ -1404,23 +893,6 @@ static inline void PregameUI()
 {
 	StaticUI();
 
-	if (Engine_Version >= 422 && Engine_Version < 424)
-	{
-		ImGui::Checkbox("Creative", &Globals::bCreative);
-	}
-
-	if (Addresses::SetZoneToIndex)
-	{
-		bool bWillBeLategame = Globals::bLateGame.load();
-		ImGui::Checkbox("Lategame", &bWillBeLategame);
-		SetIsLategame(bWillBeLategame);
-	}
-
-	if (HasEvent())
-	{
-		ImGui::Checkbox("Play Event", &Globals::bGoingToPlayEvent);
-	}
-
 	if (!bSwitchedInitialLevel)
 	{
 		// ImGui::Checkbox("Use Custom Map", &bUseCustomMap);
@@ -1435,8 +907,6 @@ static inline void PregameUI()
 
 	ImGui::SliderInt("Players required to start the match", &WarmupRequiredPlayerCount, 1, 100);
 		
-	if (!Globals::bCreative)
-		ImGui::InputText("Playlist", &PlaylistName);
 }
 
 static inline HICON LoadIconFromMemory(const char* bytes, int bytes_size, const wchar_t* IconName) {
@@ -1470,7 +940,7 @@ static inline DWORD WINAPI GuiThread(LPVOID)
 {
 	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"RebootClass", NULL };
 	::RegisterClassEx(&wc);
-	HWND hwnd = ::CreateWindowExW(0L, wc.lpszClassName, (L"Project Reboot " + std::to_wstring(Fortnite_Version)).c_str(), (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), 100, 100, Width, Height, NULL, NULL, wc.hInstance, NULL);
+	HWND hwnd = ::CreateWindowExW(0L, wc.lpszClassName, (L"Project Reboot " + std::to_wstring(std::floor(Fortnite_Version))).c_str(), (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), 100, 100, Width, Height, NULL, NULL, wc.hInstance, NULL);
 
 	if (false) // idk why this dont work
 	{

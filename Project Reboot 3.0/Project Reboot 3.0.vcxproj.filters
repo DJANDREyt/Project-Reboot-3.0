@@ -305,6 +305,15 @@
     <ClCompile Include="FortServerBotManagerAthena.cpp">
       <Filter>FortniteGame\Source\FortniteGame\Private\AI</Filter>
     </ClCompile>
+    <ClCompile Include="FortGameStateZone.cpp">
+      <Filter>FortniteGame\Source\FortniteGame\Private</Filter>
+    </ClCompile>
+    <ClCompile Include="FortPlayerControllerZone.cpp">
+      <Filter>FortniteGame\Source\FortniteGame\Private\Player</Filter>
+    </ClCompile>
+    <ClCompile Include="FortPlayerStateZone.cpp">
+      <Filter>FortniteGame\Source\FortniteGame\Private\Player</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="log.h" />
@@ -986,6 +995,15 @@
     </ClInclude>
     <ClInclude Include="botnames.h">
       <Filter>Reboot\Public</Filter>
+    </ClInclude>
+    <ClInclude Include="FortGameStateZone.h">
+      <Filter>FortniteGame\Source\FortniteGame\Public</Filter>
+    </ClInclude>
+    <ClInclude Include="FortPlayerControllerZone.h">
+      <Filter>FortniteGame\Source\FortniteGame\Public\Player</Filter>
+    </ClInclude>
+    <ClInclude Include="FortPlayerStateZone.h">
+      <Filter>FortniteGame\Source\FortniteGame\Public\Player</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
